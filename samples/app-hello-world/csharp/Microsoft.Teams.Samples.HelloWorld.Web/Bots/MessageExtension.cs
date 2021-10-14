@@ -12,11 +12,22 @@ using Bogus;
 using Microsoft.Bot.Connector;
 using AdaptiveCards;
 using Newtonsoft.Json;
+using Microsoft.Bot.Connector.Authentication;
+using Microsoft.Teams.Samples.HelloWorld.Web.Bots;
+using Microsoft.Extensions.Configuration;
 
 namespace Microsoft.Teams.Samples.HelloWorld.Web
 {
     public class MessageExtension : TeamsActivityHandler
     {
+
+        private readonly IConfiguration _config;
+
+        public MessageExtension(IConfiguration config)
+        {
+            this._config = config;
+        }
+
         protected override async Task OnMessageActivityAsync(ITurnContext<IMessageActivity> turnContext, CancellationToken cancellationToken)
         {
             turnContext.Activity.RemoveRecipientMention();
@@ -28,19 +39,6 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
 
         protected override Task<MessagingExtensionResponse> OnTeamsMessagingExtensionQueryAsync(ITurnContext<IInvokeActivity> turnContext, MessagingExtensionQuery query, CancellationToken cancellationToken)
         {
-            /*var title = "";
-            var titleParam = query.Parameters?.FirstOrDefault(p => p.Name == "cardTitle");
-            if (titleParam != null)
-            {
-                title = titleParam.Value.ToString();
-            }
-
-            if (query == null || query.CommandId != "getRandomText")
-            {
-                // We only process the 'getRandomText' queries with this message extension
-                throw new NotImplementedException($"Invalid CommandId: {query.CommandId}");
-            }
-            */
             var title = "Hello";
             var attachments = new MessagingExtensionAttachment[5];
 
@@ -48,7 +46,7 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
             {
                 attachments[i] = GetAttachment(title);
             }
-            
+
 
             var result = new MessagingExtensionResponse
             {
@@ -92,7 +90,7 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
             var previewedCard = JsonConvert.DeserializeObject<AdaptiveCard>(attachmentContent.ToString(),
                     new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
 
-            previewedCard.Version = "1.0";
+            previewedCard.Version = "1.2";
 
             var responseActivity = Activity.CreateMessageActivity();
             Attachment attachment = new Attachment()
@@ -102,23 +100,85 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
             };
             responseActivity.Attachments.Add(attachment);
 
+            var membersToMention = ((AdaptiveTextBlock)previewedCard.Body.First()).Text;
+
+            var teamId = turnContext.Activity.GetChannelData<TeamsChannelData>().Team.Id;
+            var members = await TeamsInfo.GetTeamMembersAsync(turnContext, teamId, cancellationToken);
+
+            List<Mention> membersToMentionList = new List<Mention>();
+            foreach (var teamMember in members)
+            {
+                if (membersToMention.Contains(teamMember.Name))
+                {
+                    membersToMentionList.Add(new Mention
+                    {
+                        Mentioned = teamMember,
+                        Text = $"<at>{teamMember.Name}</at>",
+                    }
+                    );
+                }
+            }
+
+            var entities = new { entities = new List<Entity>(membersToMentionList) };
+            previewedCard.AdditionalProperties.Add("msteams", entities);
+
             // Attribute the message to the user on whose behalf the bot is posting
             responseActivity.ChannelData = new
             {
                 OnBehalfOf = new[]
-              {
-      new
-      {
-        ItemId = 0,
-        MentionType = "person",
-        Mri = turnContext.Activity.From.Id,
-        DisplayName = turnContext.Activity.From.Name
-      }
-    }
+                {
+                    new
+                    {
+                        ItemId = 0,
+                        MentionType = "person",
+                        Mri = turnContext.Activity.From.Id,
+                        DisplayName = turnContext.Activity.From.Name
+                    }
+                }
             };
 
             await turnContext.SendActivityAsync(responseActivity);
 
+            // start for async message posting
+
+            /*var teamsChannelId = turnContext.Activity.TeamsGetChannelId();
+            var message = MessageFactory.Text("This will start a new thread in a channel");
+
+            var serviceUrl = turnContext.Activity.ServiceUrl;
+            var credentials = new MicrosoftAppCredentials(_appId, _appPassword);
+
+            var conversationParameters = new ConversationParameters
+            {
+                IsGroup = true,
+                ChannelData = new { channel = new { id = teamsChannelId } },
+                Activity = (Activity)message,
+            };
+
+            ConversationReference conversationReference = null;
+
+            await ((CloudAdapter)turnContext.Adapter).CreateConversationAsync(
+                credentials.MicrosoftAppId,
+                teamsChannelId,
+                serviceUrl,
+                credentials.OAuthScope,
+                conversationParameters,
+                (t, ct) =>
+                {
+                    conversationReference = t.Activity.GetConversationReference();
+                    return Task.CompletedTask;
+                },
+                cancellationToken);
+
+
+            await ((CloudAdapter)turnContext.Adapter).ContinueConversationAsync(
+                _appId,
+                conversationReference,
+                async (t, ct) =>
+                {
+                    await t.SendActivityAsync(MessageFactory.Text("This will be the first response to the new thread"), ct);
+                },
+                cancellationToken);
+            */
             return new MessagingExtensionActionResponse();
         }
 
@@ -126,31 +186,91 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
         protected override async Task<MessagingExtensionActionResponse> OnTeamsMessagingExtensionSubmitActionAsync(
   ITurnContext<IInvokeActivity> turnContext, MessagingExtensionAction action, CancellationToken cancellationToken)
         {
-            /*var response = new MessagingExtensionActionResponse
-            {
-                ComposeExtension = new MessagingExtensionResult
-                {
-                    AttachmentLayout = "list",
-                    Type = "result",
-                },
-            };
-            var card = new HeroCard
-            {
-                Title = "Test",
-                Subtitle = "Test",
-                Text = "Test",
-            };
-            var attachments = new List<MessagingExtensionAttachment>();
-            attachments.Add(new MessagingExtensionAttachment
-            {
-                Content = card,
-                ContentType = HeroCard.ContentType,
-                Preview = card.ToAttachment(),
-            });
-            response.ComposeExtension.Attachments = attachments;
-            return response;*/
 
-            dynamic createCardData = ((JObject)action.Data).ToObject(typeof(JObject));
+            var dependencyInput = JsonConvert.DeserializeObject<DependencyInput>(((JObject)action.Data).ToString());
+            dependencyInput.MembersAssignedList = new List<string>(dependencyInput.MembersAssigned.Split(","));
+
+            //####################################################
+            string serviceUrl = "https://smba.trafficmanager.net/emea/";
+
+            //From the Bot Channel Registration
+            string botClientID = _config.GetValue<string>("MicrosoftAppId");
+            string botClientSecret = _config.GetValue<string>("MicrosoftAppPassword");
+
+            MicrosoftAppCredentials.TrustServiceUrl(serviceUrl);
+
+            var connectorClient = new ConnectorClient(new Uri(serviceUrl), new MicrosoftAppCredentials(botClientID, botClientSecret));
+            var teamId = turnContext.Activity.GetChannelData<TeamsChannelData>().Team.Id;
+
+            //var members = await TeamsInfo.GetTeamMembersAsync(turnContext, teamId, cancellationToken);
+
+            var members = await TeamsInfo.GetTeamMembersAsync(turnContext, teamId, cancellationToken);
+
+            List<Mention> membersToMentionList = new List<Mention>();
+            string ListOfUsers = "";
+            foreach (var member in members)
+            {
+                if (dependencyInput.MembersAssignedList.Contains(member.AadObjectId))
+                {
+                    ListOfUsers = ListOfUsers + member.Name + ",";
+                    membersToMentionList.Add(new Mention
+                    {
+                        Mentioned = member,
+                        Text = $"<at>{member.Name}</at>",
+                    }
+                    );
+                }
+            }
+
+            //######################################################
+
+            foreach (var member in dependencyInput.MembersAssignedList)
+            {
+                Console.WriteLine(member.ToString());
+            }
+
+            string mentionText = "";
+            foreach (var member in membersToMentionList)
+            {
+                mentionText = mentionText + $" {member.Text} ";
+            }
+            AdaptiveTextBlock mentionBlock = new AdaptiveTextBlock()
+            {
+                Text = mentionText,
+                Wrap = true
+            };
+
+            var adaptiveCard = new AdaptiveCard("1.2")
+            {
+                Body = new List<AdaptiveElement>()
+                            {
+                                mentionBlock,
+                                new AdaptiveTextBlock() { Text = "Dependency", Size = AdaptiveTextSize.Large},
+                                new AdaptiveTextBlock() { Text = dependencyInput.DepText, Wrap = true },
+                                new AdaptiveTextBlock() { Text = "DeadLine", Size = AdaptiveTextSize.Large},
+                                new AdaptiveTextBlock() { Text = dependencyInput.DeadLineDate.ToString() + " " + dependencyInput.DeadLineTime.ToString()  },
+                                new AdaptiveTextInput() { Id = "ResolveComments", Placeholder = "Resolve with comments", IsMultiline = true},
+                            },
+                Height = AdaptiveHeight.Auto,
+                Actions = new List<AdaptiveAction>()
+                            {
+                                new AdaptiveSubmitAction
+                                {
+                                    Type = AdaptiveSubmitAction.TypeName,
+                                    Title = "Acknowledge",
+                                    Data = new JObject { { "submitLocation", "messagingExtensionFetchTask" } },
+                                },
+                                new AdaptiveSubmitAction
+                                {
+                                    Type = AdaptiveSubmitAction.TypeName,
+                                    Title = "Resolve",
+                                    Data = new JObject { { "submitLocation", "messagingExtensionFetchTask" } },
+                                },
+                            }
+            };
+
+            adaptiveCard.AdditionalProperties.Add("Users", ListOfUsers);
+
             var response = new MessagingExtensionActionResponse
             {
                 ComposeExtension = new MessagingExtensionResult
@@ -158,29 +278,11 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
                     Type = "botMessagePreview",
                     ActivityPreview = MessageFactory.Attachment(new Attachment
                     {
-                        Content = new AdaptiveCard("1.0")
-                        {
-                            Body = new List<AdaptiveElement>()
-          {
-            new AdaptiveTextBlock() { Text = "FormField1 value was:", Size = AdaptiveTextSize.Large },
-            new AdaptiveTextBlock() { Text = "Check"  }
-          },
-                            Height = AdaptiveHeight.Auto,
-                            Actions = new List<AdaptiveAction>()
-          {
-            new AdaptiveSubmitAction
-            {
-              Type = AdaptiveSubmitAction.TypeName,
-              Title = "Submit",
-              Data = new JObject { { "submitLocation", "messagingExtensionFetchTask" } },
-            },
-          }
-                        },
+                        Content = adaptiveCard,
                         ContentType = AdaptiveCard.ContentType
                     }) as Activity
                 }
             };
-
             return response;
         }
 
@@ -198,7 +300,7 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
                     continue;
                 }
 
-                teamMembers.Add(new AdaptiveChoice() { Title = account.Name, Value = account.UserPrincipalName });
+                teamMembers.Add(new AdaptiveChoice() { Title = account.Name, Value = account.AadObjectId });
             }
 
             var response = new MessagingExtensionActionResponse()
@@ -211,22 +313,22 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
                         Width = "large",
                         Title = "Create Dependencies",
                         //Url = "https://1e43-103-139-35-182.ngrok.io/hello"
-                              Card = new Attachment()
-                              {
-                                  ContentType = AdaptiveCard.ContentType,
-                                  Content = new AdaptiveCard("1.0")
-                                  {                                      
-                                      Body = new List<AdaptiveElement>()
+                        Card = new Attachment()
+                        {
+                            ContentType = AdaptiveCard.ContentType,
+                            Content = new AdaptiveCard("1.0")
+                            {
+                                Body = new List<AdaptiveElement>()
                                       {
                                           new AdaptiveTextBlock() { Text = "Pick Members responsible for this dependency"},
-                                          new AdaptiveChoiceSetInput() { IsMultiSelect = true, Choices = teamMembers, Placeholder = "Select Members"},
+                                          new AdaptiveChoiceSetInput() { Id = "MembersAssigned", IsMultiSelect = true, Choices = teamMembers, Placeholder = "Select Members"},
                                           new AdaptiveTextBlock() { Text = "Enter Your Dependency below"},
                                           new AdaptiveTextInput() { Id = "DepText", Placeholder = "Describe your dependency", IsMultiline = true},
                                           new AdaptiveTextBlock() { Text = "Pick Date and Time you want this dependency to be completed"},
                                           new AdaptiveDateInput() { Id = "DeadLineDate", Placeholder = "Select the date when you need this dependency to get completed"},
                                           new AdaptiveTimeInput() { Id = "DeadLineTime", Placeholder = "Select the time when you need this dependency to get completed"},
                                       },
-                                      Actions = new List<AdaptiveAction>()
+                                Actions = new List<AdaptiveAction>()
                                       {
                                           new AdaptiveSubmitAction()
                                           {
@@ -234,8 +336,8 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
                                           Title = "Preview and Post",
                                           },
                                       },
-                                  },
-                              },
+                            },
+                        },
                     },
                 },
             };
