@@ -7,11 +7,6 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web.Model
 {
     public static class DependencyDataStore
     {
-        public static List<DependencyReminder> RemindersListDataStore { get; set; }
-
-        static DependencyDataStore()
-        {
-            RemindersListDataStore = new List<DependencyReminder>();
-        }
+        public static List<DependencyReminder> RemindersListDataStore { get; set; } = new List<DependencyReminder>();
     }
 }

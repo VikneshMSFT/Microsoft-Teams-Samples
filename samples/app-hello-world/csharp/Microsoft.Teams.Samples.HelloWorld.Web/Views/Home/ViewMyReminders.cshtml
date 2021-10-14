@@ -1,0 +1,20 @@
+﻿@model List<Microsoft.Teams.Samples.HelloWorld.Web.Model.DependencyReminder>
+@{
+    ViewData["Title"] = "ViewMyReminders";
+}
+
+<h2>My Reminders</h2>
+@foreach (var reminder in @Model)
+{
+    <div class="reminder">
+        <div class="remindercontent">
+            <h3> Dependency Created On</h3>
+            @foreach (string person in reminder.ReminderAliases)
+            {
+                <span>@person</span>
+            }
+            <p><b>Reason :</b> @reminder.Message</p>
+            <p><b>Created Date:</b> @reminder.CreatedAt</p>
+        </div>
+    </div>
+}

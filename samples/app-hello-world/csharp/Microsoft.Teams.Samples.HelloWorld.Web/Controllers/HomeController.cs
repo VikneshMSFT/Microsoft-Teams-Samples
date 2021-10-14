@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Teams.Samples.HelloWorld.Web.Model;
 
 namespace Microsoft.Teams.Samples.HelloWorld.Web.Controllers
 {
@@ -36,6 +37,13 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web.Controllers
         public ActionResult Configure()
         {
             return View();
+        }
+
+        [Route("viewmyreminders/{alias}")]
+        public ActionResult ViewMyReminders()
+        {
+            List<DependencyReminder> myReminders = DependencyDataStore.RemindersListDataStore.Where(reminder => reminder.CreatedBy.Contains("pryada")).ToList<DependencyReminder>();
+            return View(myReminders);
         }
     }
 }

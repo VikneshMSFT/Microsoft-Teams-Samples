@@ -25,5 +25,6 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web.Model
         public string TeamId { get; set; }
         public string ThreadId { get; set; }
         public string ChannelId { get; set; }
+        public DateTime CreatedAt { get; set; }
     }
 }
