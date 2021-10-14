@@ -39,7 +39,7 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web.Controllers
             return View();
         }
 
-        [Route("viewmyreminders/{alias}")]
+        [Route("viewmyreminders")]
         public ActionResult ViewMyReminders()
         {
             List<DependencyReminder> myReminders = DependencyDataStore.RemindersListDataStore.Where(reminder => reminder.CreatedBy.Contains("pryada")).ToList<DependencyReminder>();
