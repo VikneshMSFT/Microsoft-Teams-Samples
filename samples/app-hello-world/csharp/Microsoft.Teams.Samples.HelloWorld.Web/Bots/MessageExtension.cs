@@ -22,6 +22,7 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
     {
 
         private readonly IConfiguration _config;
+        private static ConversationReference _reference;
 
         public MessageExtension(IConfiguration config)
         {
@@ -30,11 +31,25 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
 
         protected override async Task OnMessageActivityAsync(ITurnContext<IMessageActivity> turnContext, CancellationToken cancellationToken)
         {
-            turnContext.Activity.RemoveRecipientMention();
-            var text = turnContext.Activity.Text.Trim().ToLower();
+            if (turnContext.Activity.Value.ToString().Contains("DependencyAck"))
+            {
+                _ = ((BotAdapter)turnContext.Adapter).ContinueConversationAsync(
+                    _config.GetValue<string>("MicrosoftAppId"),
+                    _reference,
+                    async (t, ct) =>
+                    {
+                        await t.SendActivityAsync(MessageFactory.Text("This will be the first response to the new thread"), ct);
+                    },
+                cancellationToken);
+            }
+            else
+            {
+                turnContext.Activity.RemoveRecipientMention();
+                var text = turnContext.Activity.Text.Trim().ToLower();
 
-            var replyText = $"You said: {text}";
-            await turnContext.SendActivityAsync(MessageFactory.Text(replyText, replyText), cancellationToken);
+                var replyText = $"You said: {text}";
+                await turnContext.SendActivityAsync(MessageFactory.Text(replyText, replyText), cancellationToken);
+            }
         }
 
         protected override Task<MessagingExtensionResponse> OnTeamsMessagingExtensionQueryAsync(ITurnContext<IInvokeActivity> turnContext, MessagingExtensionQuery query, CancellationToken cancellationToken)
@@ -141,44 +156,23 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
 
             // start for async message posting
 
-            /*var teamsChannelId = turnContext.Activity.TeamsGetChannelId();
-            var message = MessageFactory.Text("This will start a new thread in a channel");
+            /* var teamsChannelId = turnContext.Activity.TeamsGetChannelId();
+             var message = MessageFactory.Text("This will start a new thread in a channel");
 
-            var serviceUrl = turnContext.Activity.ServiceUrl;
-            var credentials = new MicrosoftAppCredentials(_appId, _appPassword);
+             var serviceUrl = turnContext.Activity.ServiceUrl;
+             var credentials = new MicrosoftAppCredentials(_appId, _appPassword);
 
-            var conversationParameters = new ConversationParameters
-            {
-                IsGroup = true,
-                ChannelData = new { channel = new { id = teamsChannelId } },
-                Activity = (Activity)message,
-            };
-
-            ConversationReference conversationReference = null;
-
-            await ((CloudAdapter)turnContext.Adapter).CreateConversationAsync(
-                credentials.MicrosoftAppId,
-                teamsChannelId,
-                serviceUrl,
-                credentials.OAuthScope,
-                conversationParameters,
-                (t, ct) =>
-                {
-                    conversationReference = t.Activity.GetConversationReference();
-                    return Task.CompletedTask;
-                },
-                cancellationToken);
-
-
-            await ((CloudAdapter)turnContext.Adapter).ContinueConversationAsync(
-                _appId,
-                conversationReference,
-                async (t, ct) =>
-                {
-                    await t.SendActivityAsync(MessageFactory.Text("This will be the first response to the new thread"), ct);
-                },
-                cancellationToken);
-            */
+             var conversationParameters = new ConversationParameters
+             {
+                 IsGroup = true,
+                 ChannelData = new { channel = new { id = teamsChannelId } },
+                 Activity = (Activity)message,
+             };*/
+            var messageId = responseActivity.Id;
+            var convesrationRef = turnContext.Activity.GetConversationReference();
+            convesrationRef.Conversation.Id = convesrationRef.Conversation.Id + ";messageid=" + messageId;
+            _reference = convesrationRef;
+            
             return new MessagingExtensionActionResponse();
         }
 
@@ -258,13 +252,13 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
                                 {
                                     Type = AdaptiveSubmitAction.TypeName,
                                     Title = "Acknowledge",
-                                    Data = new JObject { { "submitLocation", "messagingExtensionFetchTask" } },
+                                    Data = new JObject { { "submitLocation", "DependencyAck" } },
                                 },
                                 new AdaptiveSubmitAction
                                 {
                                     Type = AdaptiveSubmitAction.TypeName,
                                     Title = "Resolve",
-                                    Data = new JObject { { "submitLocation", "messagingExtensionFetchTask" } },
+                                    Data = new JObject { { "submitLocation", "DependencyResolve" } },
                                 },
                             }
             };
