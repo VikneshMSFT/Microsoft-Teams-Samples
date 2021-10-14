@@ -5,4 +5,23 @@
 
 div.panel {
     padding: 15px;
+    display: flex;
 }
+
+.remindercontent {
+    margin-left: 10px
+}
+
+.reminder {
+    background: #f0f3f2;
+    border: 2px solid gray;
+    width: 310px;
+    margin-bottom: 10px;
+    border-radius: 20px;
+    box-shadow: 0 4px 8px 0 rgb(239 242 244);
+    transition: 0.3s;
+}
+
+    .reminder:hover {
+        box-shadow: 0 8px 16px 0 rgba(0,0,0,0.2);
+    }
