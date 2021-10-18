@@ -13,8 +13,23 @@
             {
                 <span>@person</span>
             }
-            <p><b>Reason :</b> @reminder.Message</p>
-            <p><b>Created Date:</b> @reminder.CreatedAt</p>
+            <p><b>Reason :</b> @reminder.DependencyText</p>
+            <p><b>Created Date :</b> @reminder.CreatedAt</p>
+            <p><b>DeadLine DateTime :</b>@reminder.DeadlineDateTime</p>
+            <p><b>Acknowledged :</b>@reminder.Acknowledge</p>
+            @if (@reminder.Acknowledge)
+            {
+                <p><b>Acknowledged by:</b>@reminder.AcknowledgedByUser.Name</p>
+            }
+            <p><b>Resolved :</b>@reminder.Resolved</p>
+            @if (@reminder.Resolved)
+            {
+                <p><b>Acknowledged by:</b>@reminder.AcknowledgedByUser.Name</p>
+            }
+            @if (!string.IsNullOrEmpty(reminder.ResolveText))
+            {
+                <p><b>Resolved Comments:</b>@reminder.ResolveText</p>
+            }
         </div>
     </div>
 }

@@ -15,6 +15,9 @@ using Newtonsoft.Json;
 using Microsoft.Bot.Connector.Authentication;
 using Microsoft.Teams.Samples.HelloWorld.Web.Bots;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Teams.Samples.HelloWorld.Web.Model;
+using System.Globalization;
+using Microsoft.Teams.Samples.HelloWorld.Web.Repository;
 
 namespace Microsoft.Teams.Samples.HelloWorld.Web
 {
@@ -22,23 +25,202 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
     {
 
         private readonly IConfiguration _config;
+        private readonly IRemainderRepository _remainderRepository;
+
         private static ConversationReference _reference;
 
-        public MessageExtension(IConfiguration config)
+        public MessageExtension(IConfiguration config, IRemainderRepository repository)
         {
             this._config = config;
+            this._remainderRepository = repository;
         }
 
         protected override async Task OnMessageActivityAsync(ITurnContext<IMessageActivity> turnContext, CancellationToken cancellationToken)
         {
-            if (turnContext.Activity.Value.ToString().Contains("DependencyAck"))
+            var teamId = turnContext.Activity.GetChannelData<TeamsChannelData>().Team.Id;
+            var channelId = turnContext.Activity.GetChannelData<TeamsChannelData>().Channel.Id;
+            var members = await TeamsInfo.GetTeamMembersAsync(turnContext, teamId, cancellationToken);
+            var dependencyRemainder = this._remainderRepository.GetDependencyByConversationId(turnContext.Activity.Conversation.Id);
+
+            if (turnContext.Activity.Value.ToString().Contains("DependencyResolve"))
+            {
+                _ = ((BotAdapter)turnContext.Adapter).ContinueConversationAsync(
+                   _config.GetValue<string>("MicrosoftAppId"),
+                   _reference,
+                   async (t, ct) =>
+                   {
+                       var previewedCard = new AdaptiveCard("1.2");
+                       var responseActivity = Activity.CreateMessageActivity();
+                       var teamId = turnContext.Activity.GetChannelData<TeamsChannelData>().Team.Id;
+
+                       var mention = new Mention
+                       {
+                           Mentioned = dependencyRemainder.CreatedByUser,
+                           Text = $"<at>{dependencyRemainder.CreatedByUser.Name}</at>",
+                       };
+
+                       var mentionTextBlock =
+                           new AdaptiveTextBlock() { Text = $"{mention.Text} :  Resolved by {turnContext.Activity.From.Name}", Size = AdaptiveTextSize.Medium };
+                       previewedCard.Body.Add(mentionTextBlock);
+
+                       var entities = new { entities = new List<Entity> { mention } };
+                       previewedCard.AdditionalProperties.Add("msteams", entities);
+
+                       Attachment attachment = new Attachment()
+                       {
+                           ContentType = AdaptiveCard.ContentType,
+                           Content = previewedCard
+                       };
+                       responseActivity.Attachments.Add(attachment);
+                       await t.SendActivityAsync(responseActivity);
+
+                        // updating card with ack data
+                        var updatedCard = JsonConvert.DeserializeObject<AdaptiveCard>(dependencyRemainder.AdaptiveCardData,
+                           new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
+
+                       updatedCard.Version = "1.2";
+                       var updateResponseActivity = Activity.CreateMessageActivity();
+                       updateResponseActivity.Id = turnContext.Activity.ReplyToId;
+                       var mentionEntities = new { entities = dependencyRemainder.UsersAssigned };
+                       updatedCard.AdditionalProperties.Add("msteams", mentionEntities);
+
+                       Attachment updatedAttachment = new Attachment()
+                       {
+                           ContentType = AdaptiveCard.ContentType,
+                           Content = updatedCard
+                       };
+
+
+                       updatedCard.Body.RemoveAt(5);
+                       if (updatedCard.Body.Count == 7)
+                       {
+                           updatedCard.Body.RemoveAt(6);
+                       }
+
+                       var myDetails = JsonConvert.DeserializeObject<ResolveCommentsInput>(turnContext.Activity.Value.ToString());
+
+                       var resolvedUser = members.Where(member => member.Name.Equals(turnContext.Activity.From.Name)).First();
+                       dependencyRemainder.ResolvedByUser = resolvedUser;
+                       dependencyRemainder.Resolved = true;
+                       updatedCard.Body.Add(new AdaptiveTextBlock()
+                       {
+                           Italic = true,
+                           Text = $"Comments from {resolvedUser.Name}: {myDetails.ResolveComments}",
+                           Size = AdaptiveTextSize.Large,
+                           Wrap = true
+                       }); 
+
+                       if (dependencyRemainder.AcknowledgedByUser != null)
+                       {
+                           updatedCard.Body.Add(new AdaptiveTextBlock()
+                           {
+                               Italic = true,
+                               Text = $"Acknowledged by {dependencyRemainder.AcknowledgedByUser.Name}",
+                               Size = AdaptiveTextSize.Medium,
+                           });
+                       }
+
+                       updatedCard.Body.Add(new AdaptiveTextBlock()
+                       {
+                           Italic = true,
+                           Text = $"Resolved by {resolvedUser.Name}",
+                           Size = AdaptiveTextSize.Medium,
+                       });
+
+                       
+                       updateResponseActivity.Attachments.Add(updatedAttachment);
+
+                       updateResponseActivity.ChannelData = new
+                       {
+                           OnBehalfOf = new[]
+                           {
+                                new
+                                {
+                                    ItemId = 0,
+                                    MentionType = "person",
+                                    Mri = dependencyRemainder.CreatedByUser.Id,
+                                    DisplayName = dependencyRemainder.CreatedByUser.Name,
+                                }
+                           }
+                       };
+
+                       await turnContext.UpdateActivityAsync(updateResponseActivity, cancellationToken);
+                   },
+               cancellationToken);
+            }
+            else if (turnContext.Activity.Value.ToString().Contains("DependencyAck"))
             {
                 _ = ((BotAdapter)turnContext.Adapter).ContinueConversationAsync(
                     _config.GetValue<string>("MicrosoftAppId"),
                     _reference,
                     async (t, ct) =>
                     {
-                        await t.SendActivityAsync(MessageFactory.Text("This will be the first response to the new thread"), ct);
+                        var previewedCard = new AdaptiveCard("1.2");
+                        var responseActivity = Activity.CreateMessageActivity();
+                        var teamId = turnContext.Activity.GetChannelData<TeamsChannelData>().Team.Id;
+
+                        var mention = new Mention
+                        {
+                            Mentioned = dependencyRemainder.CreatedByUser,
+                            Text = $"<at>{dependencyRemainder.CreatedByUser.Name}</at>",
+                        };
+
+                        var mentionTextBlock =
+                            new AdaptiveTextBlock() { Text = $"{mention.Text} :  Acknowledged by {turnContext.Activity.From.Name}", Size = AdaptiveTextSize.Medium };
+                        previewedCard.Body.Add(mentionTextBlock);
+
+                        var entities = new { entities = new List<Entity> { mention } };
+                        previewedCard.AdditionalProperties.Add("msteams", entities);
+
+                        Attachment attachment = new Attachment()
+                        {
+                            ContentType = AdaptiveCard.ContentType,
+                            Content = previewedCard
+                        };
+                        responseActivity.Attachments.Add(attachment);
+                        await t.SendActivityAsync(responseActivity);
+
+                        // updating card with ack data
+                        var updatedCard = JsonConvert.DeserializeObject<AdaptiveCard>(dependencyRemainder.AdaptiveCardData,
+                            new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
+
+                        updatedCard.Version = "1.2";
+                        var updateResponseActivity = Activity.CreateMessageActivity();
+                        updateResponseActivity.Id = turnContext.Activity.ReplyToId;
+                        var mentionEntities = new { entities = new List<Entity>(dependencyRemainder.UsersAssigned) };
+                        updatedCard.AdditionalProperties.Add("msteams", mentionEntities);
+
+                        Attachment updatedAttachment = new Attachment()
+                        {
+                            ContentType = AdaptiveCard.ContentType,
+                            Content = updatedCard
+                        };
+
+                        var ackUser = members.Where(member => member.Name.Equals(turnContext.Activity.From.Name)).First();
+                        dependencyRemainder.AcknowledgedByUser = ackUser;
+                        updatedCard.Body.Add(new AdaptiveTextBlock() { 
+                            Italic = true,
+                            Text = $"Acknowledged by {ackUser.Name}",
+                            Size = AdaptiveTextSize.Medium,
+                        });
+
+                        updateResponseActivity.Attachments.Add(updatedAttachment);
+
+                        updateResponseActivity.ChannelData = new
+                        {
+                            OnBehalfOf = new[]
+                            {
+                                new
+                                {
+                                    ItemId = 0,
+                                    MentionType = "person",
+                                    Mri = dependencyRemainder.CreatedByUser.Id,
+                                    DisplayName = dependencyRemainder.CreatedByUser.Name,
+                                }
+                            }
+                        };
+
+                        await turnContext.UpdateActivityAsync(updateResponseActivity, cancellationToken);
                     },
                 cancellationToken);
             }
@@ -114,15 +296,22 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
                 Content = previewedCard
             };
             responseActivity.Attachments.Add(attachment);
-
+            
             var membersToMention = ((AdaptiveTextBlock)previewedCard.Body.First()).Text;
 
             var teamId = turnContext.Activity.GetChannelData<TeamsChannelData>().Team.Id;
+            var channelId = turnContext.Activity.GetChannelData<TeamsChannelData>().Channel.Id;
             var members = await TeamsInfo.GetTeamMembersAsync(turnContext, teamId, cancellationToken);
 
+            TeamsChannelAccount createdUser = null;
             List<Mention> membersToMentionList = new List<Mention>();
             foreach (var teamMember in members)
             {
+                if (teamMember.Name.Equals(turnContext.Activity.From.Name))
+                {
+                    createdUser = teamMember;
+                }
+
                 if (membersToMention.Contains(teamMember.Name))
                 {
                     membersToMentionList.Add(new Mention
@@ -154,25 +343,43 @@ namespace Microsoft.Teams.Samples.HelloWorld.Web
 
             await turnContext.SendActivityAsync(responseActivity);
 
-            // start for async message posting
-
-            /* var teamsChannelId = turnContext.Activity.TeamsGetChannelId();
-             var message = MessageFactory.Text("This will start a new thread in a channel");
-
-             var serviceUrl = turnContext.Activity.ServiceUrl;
-             var credentials = new MicrosoftAppCredentials(_appId, _appPassword);
-
-             var conversationParameters = new ConversationParameters
-             {
-                 IsGroup = true,
-                 ChannelData = new { channel = new { id = teamsChannelId } },
-                 Activity = (Activity)message,
-             };*/
             var messageId = responseActivity.Id;
             var convesrationRef = turnContext.Activity.GetConversationReference();
             convesrationRef.Conversation.Id = convesrationRef.Conversation.Id + ";messageid=" + messageId;
             _reference = convesrationRef;
-            
+
+            var deadlineTime = ((AdaptiveTextBlock)previewedCard.Body.ToArray()[4]).Text;
+
+            var cardElements = previewedCard.Body.ToArray();
+            var deadLineElementText = ((AdaptiveTextBlock)cardElements[4]).Text;
+
+            CultureInfo provider = CultureInfo.InvariantCulture;
+            // It throws Argument null exception  
+            DateTime deadlineDateTime = DateTime.ParseExact(deadLineElementText, "yyyy-MM-dd HH:mm", provider);
+
+            var dependencyText = ((AdaptiveTextBlock)previewedCard.Body.ToArray()[2]).Text;
+            // fetch data needed to store in dependendency remainder
+
+            //previewedCard.
+            DependencyReminder remainder = new DependencyReminder
+            {
+                DeadlineDateTime = deadlineDateTime,
+                ConversationRefernce = convesrationRef,
+                CreatedBy = turnContext.Activity.From.Name,
+                CreatedByUser = createdUser,
+                DependencyText = dependencyText,
+                ReminderId = Guid.NewGuid(),
+                TeamId = teamId,
+                ChannelId = channelId,
+                ThreadId = messageId,
+                UsersAssigned = membersToMentionList,
+                ReminderAliases = membersToMentionList.Select(member => member.Mentioned.Name).ToList(),
+                AdaptiveCardData = attachmentContent.ToString(),
+                CreatedAt = DateTime.Now,
+            };
+
+            this._remainderRepository.AddDependencyRemainder(remainder);
+
             return new MessagingExtensionActionResponse();
         }
 

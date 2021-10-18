@@ -1,0 +1,42 @@
+﻿@model List<Microsoft.Teams.Samples.HelloWorld.Web.Model.DependencyReminder>
+@{
+    ViewData["Title"] = "ViewRemaindersAssignedToMe";
+}
+
+<h2>Reminders Assigned To Me</h2>
+@foreach (var reminder in @Model)
+{
+    <form action="/action_page.php">
+        <div class="reminder">
+            <div class="remindercontent">
+                <h3> Dependency Created by</h3>
+                <span>@reminder.CreatedByUser.Name</span>
+                <p><b>Reason :</b> @reminder.DependencyText</p>
+                <p><b>Created Date :</b> @reminder.CreatedAt</p>
+                <p><b>DeadLine DateTime :</b>@reminder.DeadlineDateTime</p>
+                <p><b>Acknowledged :</b>@reminder.Acknowledge</p>
+                @if (@reminder.Acknowledge)
+                {
+                    <p><b>Acknowledged by:</b>@reminder.AcknowledgedByUser.Name</p>
+                }
+                <p><b>Resolved :</b>@reminder.Resolved</p>
+                @if (@reminder.Resolved)
+                {
+                    <p><b>Acknowledged by:</b>@reminder.AcknowledgedByUser.Name</p>
+                }
+                @if (!string.IsNullOrEmpty(reminder.ResolveText))
+                {
+                    <p><b>Resolved Comments:</b>@reminder.ResolveText</p>
+                }
+                else
+                {
+                    <p><b>Resolve Comments:</b><input type="text" id="resolvecomments" name="Resolve Comments"></p>
+                }
+                <div>
+                    <input type="submit" value="Acknowledge">
+                    <input type="submit" value="Resolve">
+                </div>
+            </div>
+        </div>
+    </form>
+}
